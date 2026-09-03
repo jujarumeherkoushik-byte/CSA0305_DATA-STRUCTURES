@@ -1,0 +1,265 @@
+#include <stdio.h>
+#include <string.h>
+
+#define N 5
+#define W 2
+#define Z 3
+#define INF 99999
+#define VEHICLE_CAPACITY 40
+
+typedef struct {
+    int distance, capacity;
+} Edge;
+
+typedef struct {
+    char name[30];
+    int node, stock;
+} Warehouse;
+
+typedef struct {
+    char name[30];
+    int node, demand, urgency, waiting;
+    float priority;
+} Zone;
+
+typedef struct {
+    int zone;
+    float priority;
+} HeapItem;
+
+Edge graph[N][N];
+
+Warehouse warehouses[W] = {
+    {"Central Warehouse", 0, 150},
+    {"Coastal Warehouse", 1, 120}
+};
+
+Zone zones[Z] = {
+    {"Riverbank Zone", 2, 90, 10, 0, 0},
+    {"Coastal Shelter", 3, 100, 8, 0, 0},
+    {"Hillside Zone", 4, 70, 6, 0, 0}
+};
+
+HeapItem heap[Z];
+int heapSize = 0;
+
+/* Add transportation route */
+void addRoute(int a, int b, int distance, int capacity)
+{
+    graph[a][b].distance = graph[b][a].distance = distance;
+    graph[a][b].capacity = graph[b][a].capacity = capacity;
+}
+
+/* Dijkstra shortest path */
+int dijkstra(int source, int destination, int quantity)
+{
+    int dist[N], visited[N] = {0};
+
+    for (int i = 0; i < N; i++)
+        dist[i] = INF;
+
+    dist[source] = 0;
+
+    for (int i = 0; i < N; i++)
+    {
+        int u = -1, min = INF;
+
+        for (int j = 0; j < N; j++)
+        {
+            if (!visited[j] && dist[j] < min)
+            {
+                min = dist[j];
+                u = j;
+            }
+        }
+
+        if (u == -1)
+            break;
+
+        visited[u] = 1;
+
+        for (int v = 0; v < N; v++)
+        {
+            if (!visited[v] &&
+                graph[u][v].capacity >= quantity &&
+                graph[u][v].distance > 0)
+            {
+                int d = dist[u] + graph[u][v].distance;
+
+                if (d < dist[v])
+                    dist[v] = d;
+            }
+        }
+    }
+
+    return dist[destination];
+}
+
+/* Priority calculation */
+float priority(int i, int distance)
+{
+    int ageing = zones[i].waiting * 5;
+
+    if (ageing > 20)
+        ageing = 20;
+
+    return 5.5 * zones[i].urgency +
+           0.25 * zones[i].demand +
+           0.10 * (100 - distance) +
+           ageing;
+}
+
+/* Swap heap elements */
+void swap(HeapItem *a, HeapItem *b)
+{
+    HeapItem t = *a;
+    *a = *b;
+    *b = t;
+}
+
+/* Insert into Max Heap */
+void insertHeap(int zone, float p)
+{
+    int i = heapSize++;
+
+    heap[i].zone = zone;
+    heap[i].priority = p;
+
+    while (i > 0 &&
+           heap[i].priority > heap[(i - 1) / 2].priority)
+    {
+        swap(&heap[i], &heap[(i - 1) / 2]);
+        i = (i - 1) / 2;
+    }
+}
+
+/* Extract maximum priority */
+HeapItem extractMax()
+{
+    HeapItem max = heap[0];
+
+    heap[0] = heap[--heapSize];
+
+    for (int i = 0;;)
+    {
+        int l = 2 * i + 1;
+        int r = 2 * i + 2;
+        int largest = i;
+
+        if (l < heapSize &&
+            heap[l].priority > heap[largest].priority)
+            largest = l;
+
+        if (r < heapSize &&
+            heap[r].priority > heap[largest].priority)
+            largest = r;
+
+        if (largest == i)
+            break;
+
+        swap(&heap[i], &heap[largest]);
+        i = largest;
+    }
+
+    return max;
+}
+
+/* Main disaster relief simulation */
+int main()
+{
+    memset(graph, 0, sizeof(graph));
+
+    /* Transportation routes */
+    addRoute(0, 2, 12, 40);
+    addRoute(0, 3, 25, 40);
+    addRoute(0, 4, 35, 40);
+    addRoute(1, 2, 20, 40);
+    addRoute(1, 3, 10, 40);
+    addRoute(1, 4, 22, 40);
+
+    printf("INTELLIGENT DISASTER RELIEF SYSTEM\n\n");
+
+    /* Calculate priority for each zone */
+    for (int i = 0; i < Z; i++)
+    {
+        int bestDistance = INF;
+
+        for (int j = 0; j < W; j++)
+        {
+            int quantity = zones[i].demand;
+
+            if (quantity > VEHICLE_CAPACITY)
+                quantity = VEHICLE_CAPACITY;
+
+            int d = dijkstra(
+                warehouses[j].node,
+                zones[i].node,
+                quantity
+            );
+
+            if (d < bestDistance)
+                bestDistance = d;
+        }
+
+        zones[i].priority = priority(i, bestDistance);
+
+        insertHeap(i, zones[i].priority);
+    }
+
+    printf("DISPATCH PLAN\n");
+    printf("-----------------------------------------------\n");
+
+    /* Dispatch according to priority */
+    while (heapSize > 0)
+    {
+        HeapItem item = extractMax();
+        Zone *z = &zones[item.zone];
+
+        int warehouse = 0;
+        int bestDistance = INF;
+
+        for (int j = 0; j < W; j++)
+        {
+            int quantity = z->demand;
+
+            if (quantity > VEHICLE_CAPACITY)
+                quantity = VEHICLE_CAPACITY;
+
+            int d = dijkstra(
+                warehouses[j].node,
+                z->node,
+                quantity
+            );
+
+            if (d < bestDistance &&
+                warehouses[j].stock > 0)
+            {
+                bestDistance = d;
+                warehouse = j;
+            }
+        }
+
+        int quantity = z->demand;
+
+        if (quantity > warehouses[warehouse].stock)
+            quantity = warehouses[warehouse].stock;
+
+        if (quantity > VEHICLE_CAPACITY)
+            quantity = VEHICLE_CAPACITY;
+
+        warehouses[warehouse].stock -= quantity;
+        z->demand -= quantity;
+
+        printf("Zone: %s\n", z->name);
+        printf("Warehouse: %s\n",
+               warehouses[warehouse].name);
+
+        printf("Distance: %d km | Priority: %.2f\n",
+               bestDistance, item.priority);
+
+        printf("Delivered: %d units | Remaining: %d\n\n",
+               quantity, z->demand);
+    }
+
+    return 0;
+}
